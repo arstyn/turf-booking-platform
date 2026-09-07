@@ -1,405 +1,591 @@
-import { Calendar, CheckCircle2, Clock, Eye, Filter, Mail, MessageSquare, Reply, Search, Send, Trash2, User } from "lucide-react";
-import { useEffect, useState } from "react";
+import {
+    Calendar,
+    CheckCircle2,
+    Clock,
+    Eye,
+    Mail,
+    MessageSquare,
+    Reply,
+    Send,
+    Trash2,
+    User,
+} from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import {
+    AdminBadge,
+    AdminConfirmModal,
+    AdminEmptyState,
+    AdminFilterBar,
+    AdminModal,
+    AdminPageHeader,
+    AdminPagination,
+    AdminStatCard,
+} from "../../components/admin";
 import api from "../../services/api";
 
 interface ContactMessage {
-  id: string;
-  name: string;
-  email: string;
-  subject: string;
-  message: string;
-  status: 'pending' | 'in_progress' | 'resolved' | 'closed';
-  adminResponse?: string;
-  respondedAt?: string;
-  respondedBy?: string;
-  createdAt: string;
-  updatedAt: string;
+    id: string;
+    name: string;
+    email: string;
+    subject: string;
+    message: string;
+    status: "pending" | "in_progress" | "resolved" | "closed";
+    adminResponse?: string;
+    respondedAt?: string;
+    respondedBy?: string;
+    createdAt: string;
+    updatedAt: string;
 }
 
 interface ContactStats {
-  total: number;
-  pending: number;
-  inProgress: number;
-  resolved: number;
-  closed: number;
+    total: number;
+    pending: number;
+    inProgress: number;
+    resolved: number;
+    closed: number;
 }
 
 export default function AdminContact() {
-  const [messages, setMessages] = useState<ContactMessage[]>([]);
-  const [stats, setStats] = useState<ContactStats | null>(null);
-  const [selectedMessage, setSelectedMessage] = useState<ContactMessage | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [showReplyModal, setShowReplyModal] = useState(false);
-  const [replyText, setReplyText] = useState("");
-  const [submittingReply, setSubmittingReply] = useState(false);
+    const [messages, setMessages] = useState<ContactMessage[]>([]);
+    const [stats, setStats] = useState<ContactStats | null>(null);
+    const [selectedMessage, setSelectedMessage] = useState<ContactMessage | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [searchTerm, setSearchTerm] = useState("");
+    const [statusFilter, setStatusFilter] = useState<string>("all");
 
-  useEffect(() => {
-    fetchMessages();
-    fetchStats();
-  }, []);
+    // Reply Modal
+    const [showReplyModal, setShowReplyModal] = useState(false);
+    const [replyText, setReplyText] = useState("");
+    const [submittingReply, setSubmittingReply] = useState(false);
 
-  const fetchMessages = async () => {
-    try {
-      const response = await api.get('/contact/admin');
-      const result = response.data;
-      if (result.success) {
-        setMessages(result.data);
-      }
-    } catch (error) {
-      console.error('Failed to fetch messages:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+    // Delete Modal
+    const [messageToDelete, setMessageToDelete] = useState<ContactMessage | null>(null);
+    const [deleting, setDeleting] = useState(false);
 
-  const fetchStats = async () => {
-    try {
-      const response = await api.get('/contact/admin/stats');
-      const result = response.data;
-      if (result.success) {
-        setStats(result.data);
-      }
-    } catch (error) {
-      console.error('Failed to fetch stats:', error);
-    }
-  };
+    // Pagination for left list
+    const [currentPage, setCurrentPage] = useState(1);
+    const [pageSize, setPageSize] = useState(8);
 
-  const updateMessageStatus = async (id: string, status: string) => {
-    try {
-      const response = await api.put(`/contact/admin/${id}/status`, { status });
+    // Feedback
+    const [feedback, setFeedback] = useState<{
+        type: "success" | "error";
+        text: string;
+    } | null>(null);
 
-      if (response.data.success) {
+    useEffect(() => {
         fetchMessages();
         fetchStats();
-      }
-    } catch (error) {
-      console.error('Failed to update status:', error);
-    }
-  };
+    }, []);
 
-  const sendReply = async () => {
-    if (!selectedMessage || !replyText.trim()) return;
-
-    setSubmittingReply(true);
-    try {
-      const response = await api.put(`/contact/admin/${selectedMessage.id}`, {
-        adminResponse: replyText,
-        status: 'resolved'
-      });
-
-      if (response.data.success) {
-        setShowReplyModal(false);
-        setReplyText("");
-        setSelectedMessage(null);
-        fetchMessages();
-        fetchStats();
-      }
-    } catch (error) {
-      console.error('Failed to send reply:', error);
-    } finally {
-      setSubmittingReply(false);
-    }
-  };
-
-  const deleteMessage = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this message?')) return;
-
-    try {
-      const response = await api.delete(`/contact/admin/${id}`);
-
-      if (response.data.success) {
-        fetchMessages();
-        fetchStats();
-        if (selectedMessage?.id === id) {
-          setSelectedMessage(null);
+    const fetchMessages = async () => {
+        try {
+            setLoading(true);
+            const response = await api.get("/contact/admin");
+            const result = response.data;
+            if (result.success) {
+                const items = result.data || [];
+                setMessages(items);
+                if (items.length > 0 && !selectedMessage) {
+                    setSelectedMessage(items[0]);
+                }
+            }
+        } catch (error) {
+            console.error("Failed to fetch messages:", error);
+            showFeedback("error", "Failed to fetch contact inquiries.");
+        } finally {
+            setLoading(false);
         }
-      }
-    } catch (error) {
-      console.error('Failed to delete message:', error);
-    }
-  };
+    };
 
-  const filteredMessages = messages.filter(message => {
-    const matchesSearch = message.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      message.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      message.subject.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus = statusFilter === "all" || message.status === statusFilter;
-    return matchesSearch && matchesStatus;
-  });
+    const fetchStats = async () => {
+        try {
+            const response = await api.get("/contact/admin/stats");
+            const result = response.data;
+            if (result.success) {
+                setStats(result.data);
+            }
+        } catch (error) {
+            console.error("Failed to fetch stats:", error);
+        }
+    };
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'pending': return 'bg-yellow-100 text-yellow-800 border-yellow-200';
-      case 'in_progress': return 'bg-blue-100 text-blue-800 border-blue-200';
-      case 'resolved': return 'bg-green-100 text-green-800 border-green-200';
-      case 'closed': return 'bg-gray-100 text-gray-800 border-gray-200';
-      default: return 'bg-gray-100 text-gray-800';
-    }
-  };
+    const showFeedback = (type: "success" | "error", text: string) => {
+        setFeedback({ type, text });
+        setTimeout(() => setFeedback(null), 3500);
+    };
 
-  if (loading) {
+    const updateMessageStatus = async (id: string, status: string) => {
+        try {
+            const response = await api.put(`/contact/admin/${id}/status`, { status });
+            if (response.data.success) {
+                setMessages((prev) =>
+                    prev.map((m) =>
+                        m.id === id
+                            ? { ...m, status: status as ContactMessage["status"] }
+                            : m,
+                    ),
+                );
+                if (selectedMessage?.id === id) {
+                    setSelectedMessage((prev) =>
+                        prev
+                            ? { ...prev, status: status as ContactMessage["status"] }
+                            : null,
+                    );
+                }
+                fetchStats();
+                showFeedback("success", `Inquiry status updated to ${status.replace("_", " ")}.`);
+            }
+        } catch (error) {
+            console.error("Failed to update status:", error);
+            showFeedback("error", "Failed to update inquiry status.");
+        }
+    };
+
+    const sendReply = async () => {
+        if (!selectedMessage || !replyText.trim()) return;
+
+        setSubmittingReply(true);
+        try {
+            const response = await api.put(`/contact/admin/${selectedMessage.id}`, {
+                adminResponse: replyText.trim(),
+                status: "resolved",
+            });
+
+            if (response.data.success) {
+                setShowReplyModal(false);
+                setReplyText("");
+                showFeedback("success", `Response sent to ${selectedMessage.name}.`);
+                await fetchMessages();
+                await fetchStats();
+            }
+        } catch (error) {
+            console.error("Failed to send reply:", error);
+            showFeedback("error", "Failed to send response.");
+        } finally {
+            setSubmittingReply(false);
+        }
+    };
+
+    const handleConfirmDelete = async () => {
+        if (!messageToDelete) return;
+
+        try {
+            setDeleting(true);
+            const response = await api.delete(`/contact/admin/${messageToDelete.id}`);
+            if (response.data.success) {
+                setMessages((prev) => prev.filter((m) => m.id !== messageToDelete.id));
+                if (selectedMessage?.id === messageToDelete.id) {
+                    setSelectedMessage(null);
+                }
+                showFeedback("success", "Inquiry deleted successfully.");
+                setMessageToDelete(null);
+                fetchStats();
+            }
+        } catch (error) {
+            console.error("Failed to delete message:", error);
+            showFeedback("error", "Failed to delete inquiry.");
+        } finally {
+            setDeleting(false);
+        }
+    };
+
+    const filteredMessages = useMemo(() => {
+        return messages.filter((message) => {
+            const term = searchTerm.toLowerCase();
+            const matchesSearch =
+                message.name.toLowerCase().includes(term) ||
+                message.email.toLowerCase().includes(term) ||
+                message.subject.toLowerCase().includes(term) ||
+                message.message.toLowerCase().includes(term);
+            const matchesStatus =
+                statusFilter === "all" || message.status === statusFilter;
+            return matchesSearch && matchesStatus;
+        });
+    }, [messages, searchTerm, statusFilter]);
+
+    // Paginated messages for left pane
+    const paginatedMessages = useMemo(() => {
+        const start = (currentPage - 1) * pageSize;
+        return filteredMessages.slice(start, start + pageSize);
+    }, [filteredMessages, currentPage, pageSize]);
+
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="w-16 h-16 border-4 border-gray-200 border-t-accent rounded-full animate-spin"></div>
-      </div>
-    );
-  }
+        <div className="w-full p-5 space-y-6 animate-in fade-in duration-300">
+            <AdminPageHeader
+                title="Support & Inquiries"
+                description="Manage user questions, service support tickets, and direct email replies"
+                badge={stats ? `${stats.total} Total` : undefined}
+            />
 
-  return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Contact Messages</h1>
-          <p className="text-gray-600">Manage and respond to customer inquiries</p>
-        </div>
-
-        {/* Stats Cards */}
-        {stats && (
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-6 mb-8">
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-gray-500 text-sm font-medium">Total Messages</p>
-                  <p className="text-2xl font-bold text-gray-900">{stats.total}</p>
+            {/* Notification alert banner */}
+            {feedback && (
+                <div
+                    className={`p-3.5 rounded-xl text-xs sm:text-sm font-semibold flex items-center justify-between animate-in fade-in duration-200 ${
+                        feedback.type === "success"
+                            ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
+                            : "bg-rose-50 text-rose-800 border border-rose-200"
+                    }`}
+                >
+                    <span>{feedback.text}</span>
+                    <button
+                        onClick={() => setFeedback(null)}
+                        className="text-xs opacity-75 hover:opacity-100"
+                    >
+                        ✕
+                    </button>
                 </div>
-                <MessageSquare className="w-8 h-8 text-gray-400" />
-              </div>
-            </div>
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-gray-500 text-sm font-medium">Pending</p>
-                  <p className="text-2xl font-bold text-yellow-600">{stats.pending}</p>
-                </div>
-                <Clock className="w-8 h-8 text-yellow-400" />
-              </div>
-            </div>
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-gray-500 text-sm font-medium">In Progress</p>
-                  <p className="text-2xl font-bold text-blue-600">{stats.inProgress}</p>
-                </div>
-                <Send className="w-8 h-8 text-blue-400" />
-              </div>
-            </div>
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-gray-500 text-sm font-medium">Resolved</p>
-                  <p className="text-2xl font-bold text-green-600">{stats.resolved}</p>
-                </div>
-                <CheckCircle2 className="w-8 h-8 text-green-400" />
-              </div>
-            </div>
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-gray-500 text-sm font-medium">Closed</p>
-                  <p className="text-2xl font-bold text-gray-600">{stats.closed}</p>
-                </div>
-                <Eye className="w-8 h-8 text-gray-400" />
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Filters */}
-        <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 mb-6">
-          <div className="flex flex-col md:flex-row gap-4">
-            <div className="flex-1">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-                <input
-                  type="text"
-                  placeholder="Search messages..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-accent/50"
-                />
-              </div>
-            </div>
-            <div className="flex items-center space-x-2">
-              <Filter className="w-5 h-5 text-gray-400" />
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-accent/50"
-              >
-                <option value="all">All Status</option>
-                <option value="pending">Pending</option>
-                <option value="in_progress">In Progress</option>
-                <option value="resolved">Resolved</option>
-                <option value="closed">Closed</option>
-              </select>
-            </div>
-          </div>
-        </div>
-
-        {/* Messages List */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Messages List */}
-          <div className="lg:col-span-1 space-y-4">
-            {filteredMessages.map((message) => (
-              <div
-                key={message.id}
-                onClick={() => setSelectedMessage(message)}
-                className={`bg-white p-4 rounded-xl shadow-sm border cursor-pointer transition-all hover:shadow-md ${selectedMessage?.id === message.id ? 'border-accent ring-2 ring-accent/20' : 'border-gray-200'
-                  }`}
-              >
-                <div className="flex items-start justify-between mb-2">
-                  <div className="flex-1">
-                    <h3 className="font-semibold text-gray-900">{message.name}</h3>
-                    <p className="text-sm text-gray-500">{message.email}</p>
-                  </div>
-                  <span className={`px-2 py-1 text-xs font-medium rounded-full border ${getStatusColor(message.status)}`}>
-                    {message.status.replace('_', ' ')}
-                  </span>
-                </div>
-                <p className="text-sm font-medium text-gray-900 mb-1 line-clamp-1">{message.subject}</p>
-                <p className="text-sm text-gray-600 line-clamp-2">{message.message}</p>
-                <p className="text-xs text-gray-400 mt-2">
-                  {new Date(message.createdAt).toLocaleDateString()} • {new Date(message.createdAt).toLocaleTimeString()}
-                </p>
-              </div>
-            ))}
-          </div>
-
-          {/* Message Detail */}
-          <div className="lg:col-span-2">
-            {selectedMessage ? (
-              <div className="bg-white rounded-xl shadow-sm border border-gray-200">
-                <div className="p-6 border-b border-gray-200">
-                  <div className="flex items-center justify-between mb-4">
-                    <div>
-                      <h2 className="text-xl font-bold text-gray-900">{selectedMessage.subject}</h2>
-                      <div className="flex items-center space-x-4 mt-2">
-                        <div className="flex items-center space-x-2">
-                          <User className="w-4 h-4 text-gray-400" />
-                          <span className="text-sm text-gray-600">{selectedMessage.name}</span>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <Mail className="w-4 h-4 text-gray-400" />
-                          <span className="text-sm text-gray-600">{selectedMessage.email}</span>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <Calendar className="w-4 h-4 text-gray-400" />
-                          <span className="text-sm text-gray-600">
-                            {new Date(selectedMessage.createdAt).toLocaleDateString()}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <select
-                        value={selectedMessage.status}
-                        onChange={(e) => updateMessageStatus(selectedMessage.id, e.target.value)}
-                        className={`px-3 py-1 text-xs font-medium rounded-full border ${getStatusColor(selectedMessage.status)}`}
-                      >
-                        <option value="pending">Pending</option>
-                        <option value="in_progress">In Progress</option>
-                        <option value="resolved">Resolved</option>
-                        <option value="closed">Closed</option>
-                      </select>
-                      <button
-                        onClick={() => setShowReplyModal(true)}
-                        className="p-2 text-accent hover:bg-accent/10 rounded-lg transition-colors"
-                      >
-                        <Reply className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => deleteMessage(selectedMessage.id)}
-                        className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                  <div className="mb-6">
-                    <h3 className="text-sm font-medium text-gray-500 mb-2">Message</h3>
-                    <p className="text-gray-700 whitespace-pre-wrap">{selectedMessage.message}</p>
-                  </div>
-                  {selectedMessage.adminResponse && (
-                    <div>
-                      <h3 className="text-sm font-medium text-gray-500 mb-2">Admin Response</h3>
-                      <div className="bg-gray-50 p-4 rounded-lg">
-                        <p className="text-gray-700 whitespace-pre-wrap">{selectedMessage.adminResponse}</p>
-                        {selectedMessage.respondedBy && (
-                          <p className="text-xs text-gray-500 mt-2">
-                            Responded by {selectedMessage.respondedBy} on{' '}
-                            {selectedMessage.respondedAt && new Date(selectedMessage.respondedAt).toLocaleDateString()}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            ) : (
-              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-12 text-center">
-                <MessageSquare className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-gray-900 mb-2">Select a message</h3>
-                <p className="text-gray-500">Choose a message from the list to view details and respond</p>
-              </div>
             )}
-          </div>
-        </div>
 
-        {/* Reply Modal */}
-        {showReplyModal && selectedMessage && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[80vh] overflow-y-auto">
-              <div className="p-6 border-b border-gray-200">
-                <h3 className="text-xl font-bold text-gray-900">Reply to {selectedMessage.name}</h3>
-                <p className="text-gray-600 mt-1">Subject: {selectedMessage.subject}</p>
-              </div>
-              <div className="p-6">
-                <div className="mb-4">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Your Response</label>
-                  <textarea
-                    value={replyText}
-                    onChange={(e) => setReplyText(e.target.value)}
-                    rows={6}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-accent/50"
-                    placeholder="Type your response here..."
-                  />
+            {/* Stats Cards */}
+            {stats && (
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3.5">
+                    <AdminStatCard
+                        title="Total Messages"
+                        value={stats.total}
+                        icon={MessageSquare}
+                        iconColor="text-gray-700"
+                        iconBg="bg-gray-100"
+                    />
+                    <AdminStatCard
+                        title="Pending"
+                        value={stats.pending}
+                        icon={Clock}
+                        iconColor="text-amber-600"
+                        iconBg="bg-amber-50"
+                        trend={{
+                            value: stats.pending > 0 ? "Needs reply" : "Clear",
+                            isPositive: stats.pending === 0,
+                        }}
+                    />
+                    <AdminStatCard
+                        title="In Progress"
+                        value={stats.inProgress}
+                        icon={Send}
+                        iconColor="text-sky-600"
+                        iconBg="bg-sky-50"
+                    />
+                    <AdminStatCard
+                        title="Resolved"
+                        value={stats.resolved}
+                        icon={CheckCircle2}
+                        iconColor="text-emerald-600"
+                        iconBg="bg-emerald-50"
+                    />
+                    <AdminStatCard
+                        title="Closed"
+                        value={stats.closed}
+                        icon={Eye}
+                        iconColor="text-gray-500"
+                        iconBg="bg-gray-100"
+                    />
                 </div>
-                <div className="flex justify-end space-x-3">
-                  <button
-                    onClick={() => {
-                      setShowReplyModal(false);
-                      setReplyText("");
-                    }}
-                    className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={sendReply}
-                    disabled={!replyText.trim() || submittingReply}
-                    className="px-4 py-2 bg-accent text-white rounded-lg hover:bg-accent-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
-                  >
-                    {submittingReply ? (
-                      <>
-                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                        <span>Sending...</span>
-                      </>
+            )}
+
+            {/* Filter Bar */}
+            <AdminFilterBar
+                search={searchTerm}
+                onSearchChange={(val) => {
+                    setSearchTerm(val);
+                    setCurrentPage(1);
+                }}
+                searchPlaceholder="Search by name, email, subject, or message text..."
+                tabs={[
+                    { id: "all", label: "All Messages", count: stats?.total },
+                    { id: "pending", label: "Pending", count: stats?.pending },
+                    { id: "in_progress", label: "In Progress", count: stats?.inProgress },
+                    { id: "resolved", label: "Resolved", count: stats?.resolved },
+                    { id: "closed", label: "Closed", count: stats?.closed },
+                ]}
+                activeTab={statusFilter}
+                onTabChange={(tab) => {
+                    setStatusFilter(tab);
+                    setCurrentPage(1);
+                }}
+                hasActiveFilters={Boolean(searchTerm || statusFilter !== "all")}
+                onResetFilters={() => {
+                    setSearchTerm("");
+                    setStatusFilter("all");
+                    setCurrentPage(1);
+                }}
+            />
+
+            {/* Master-Detail Layout */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+                {/* Left Column: Message List */}
+                <div className="lg:col-span-5 space-y-3">
+                    <div className="bg-white rounded-xl border border-gray-200/80 shadow-xs overflow-hidden">
+                        {loading ? (
+                            <div className="p-8 text-center text-gray-400 text-xs animate-pulse">
+                                Loading inquiries...
+                            </div>
+                        ) : filteredMessages.length === 0 ? (
+                            <AdminEmptyState
+                                title="No inquiries found"
+                                description="Try adjusting your filter or search."
+                                onResetFilters={() => {
+                                    setSearchTerm("");
+                                    setStatusFilter("all");
+                                }}
+                            />
+                        ) : (
+                            <div className="divide-y divide-gray-100">
+                                {paginatedMessages.map((message) => {
+                                    const isSelected = selectedMessage?.id === message.id;
+
+                                    return (
+                                        <div
+                                            key={message.id}
+                                            onClick={() => setSelectedMessage(message)}
+                                            className={`p-4 cursor-pointer transition-all ${
+                                                isSelected
+                                                    ? "bg-red-50/40 border-l-4 border-l-[#E33E33]"
+                                                    : "hover:bg-gray-50/70 border-l-4 border-l-transparent"
+                                            }`}
+                                        >
+                                            <div className="flex items-start justify-between gap-2 mb-1.5">
+                                                <div className="truncate">
+                                                    <p className="font-bold text-gray-900 text-xs sm:text-sm truncate">
+                                                        {message.name}
+                                                    </p>
+                                                    <p className="text-[11px] text-gray-500 truncate">
+                                                        {message.email}
+                                                    </p>
+                                                </div>
+                                                <AdminBadge status={message.status} />
+                                            </div>
+
+                                            <p className="text-xs font-semibold text-gray-800 line-clamp-1">
+                                                {message.subject}
+                                            </p>
+                                            <p className="text-xs text-gray-500 line-clamp-2 mt-0.5">
+                                                {message.message}
+                                            </p>
+
+                                            <p className="text-[10px] text-gray-400 mt-2 flex items-center gap-1">
+                                                <Calendar className="w-3 h-3 text-gray-400" />
+                                                <span>
+                                                    {new Date(
+                                                        message.createdAt,
+                                                    ).toLocaleDateString("en-IN", {
+                                                        month: "short",
+                                                        day: "numeric",
+                                                        hour: "2-digit",
+                                                        minute: "2-digit",
+                                                    })}
+                                                </span>
+                                            </p>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+
+                        {filteredMessages.length > 0 && (
+                            <AdminPagination
+                                currentPage={currentPage}
+                                totalItems={filteredMessages.length}
+                                pageSize={pageSize}
+                                pageSizeOptions={[8, 16, 32]}
+                                onPageChange={setCurrentPage}
+                                onPageSizeChange={setPageSize}
+                            />
+                        )}
+                    </div>
+                </div>
+
+                {/* Right Column: Message Detail */}
+                <div className="lg:col-span-7">
+                    {selectedMessage ? (
+                        <div className="bg-white rounded-xl border border-gray-200/80 shadow-xs overflow-hidden">
+                            {/* Header */}
+                            <div className="p-5 border-b border-gray-100 bg-gray-50/50 space-y-3">
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                    <div className="space-y-1">
+                                        <h2 className="text-lg font-extrabold text-gray-900">
+                                            {selectedMessage.subject}
+                                        </h2>
+                                        <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500">
+                                            <span className="flex items-center gap-1 font-semibold text-gray-700">
+                                                <User className="w-3.5 h-3.5 text-gray-400" />
+                                                {selectedMessage.name}
+                                            </span>
+                                            <span className="flex items-center gap-1">
+                                                <Mail className="w-3.5 h-3.5 text-gray-400" />
+                                                {selectedMessage.email}
+                                            </span>
+                                            <span className="flex items-center gap-1">
+                                                <Calendar className="w-3.5 h-3.5 text-gray-400" />
+                                                {new Date(
+                                                    selectedMessage.createdAt,
+                                                ).toLocaleString("en-IN")}
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    {/* Action buttons & Status change */}
+                                    <div className="flex items-center gap-2">
+                                        <select
+                                            value={selectedMessage.status}
+                                            onChange={(e) =>
+                                                updateMessageStatus(
+                                                    selectedMessage.id,
+                                                    e.target.value,
+                                                )
+                                            }
+                                            className="text-xs bg-white border border-gray-200 rounded-lg px-2.5 py-1.5 font-semibold text-gray-700 focus:outline-none focus:ring-1 focus:ring-red-200"
+                                        >
+                                            <option value="pending">Pending</option>
+                                            <option value="in_progress">In Progress</option>
+                                            <option value="resolved">Resolved</option>
+                                            <option value="closed">Closed</option>
+                                        </select>
+
+                                        <button
+                                            onClick={() => setShowReplyModal(true)}
+                                            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#E33E33] hover:bg-[#c9352b] text-white text-xs font-semibold rounded-lg transition-colors shadow-xs"
+                                            title="Reply to message"
+                                        >
+                                            <Reply className="w-3.5 h-3.5" />
+                                            <span>Reply</span>
+                                        </button>
+
+                                        <button
+                                            onClick={() => setMessageToDelete(selectedMessage)}
+                                            className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors border border-gray-200"
+                                            title="Delete message"
+                                        >
+                                            <Trash2 className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Message Content */}
+                            <div className="p-5 space-y-6">
+                                <div>
+                                    <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">
+                                        Customer Message
+                                    </h4>
+                                    <div className="p-4 bg-gray-50/70 rounded-xl border border-gray-100 text-gray-800 text-sm leading-relaxed whitespace-pre-wrap">
+                                        {selectedMessage.message}
+                                    </div>
+                                </div>
+
+                                {/* Previous Admin Reply if any */}
+                                {selectedMessage.adminResponse && (
+                                    <div>
+                                        <h4 className="text-xs font-bold text-emerald-700 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                                            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                                            Admin Response Sent
+                                        </h4>
+                                        <div className="p-4 bg-emerald-50/60 rounded-xl border border-emerald-100 text-gray-800 text-sm leading-relaxed whitespace-pre-wrap">
+                                            {selectedMessage.adminResponse}
+                                            {selectedMessage.respondedBy && (
+                                                <p className="text-[11px] text-gray-400 mt-2 border-t border-emerald-200/50 pt-1.5">
+                                                    Responded by {selectedMessage.respondedBy} on{" "}
+                                                    {selectedMessage.respondedAt &&
+                                                        new Date(
+                                                            selectedMessage.respondedAt,
+                                                        ).toLocaleString("en-IN")}
+                                                </p>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
                     ) : (
-                      <>
-                        <Send className="w-4 h-4" />
-                        <span>Send Reply</span>
-                      </>
+                        <div className="bg-white rounded-xl border border-gray-200/80 shadow-xs p-12 text-center text-gray-400 text-sm">
+                            <MessageSquare className="w-10 h-10 mx-auto mb-2 text-gray-300" />
+                            Select an inquiry from the list to view details and respond.
+                        </div>
                     )}
-                  </button>
                 </div>
-              </div>
             </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
+
+            {/* Reply Modal */}
+            <AdminModal
+                isOpen={showReplyModal && Boolean(selectedMessage)}
+                onClose={() => {
+                    setShowReplyModal(false);
+                    setReplyText("");
+                }}
+                title={selectedMessage ? `Reply to ${selectedMessage.name}` : "Reply"}
+                description={
+                    selectedMessage ? `Subject: ${selectedMessage.subject}` : undefined
+                }
+                maxWidth="lg"
+            >
+                <div className="space-y-4">
+                    <div className="p-3 bg-gray-50 rounded-xl border border-gray-100 text-xs">
+                        <span className="text-gray-400 uppercase font-semibold block mb-1">
+                            Original Inquirer
+                        </span>
+                        <p className="text-gray-800 font-bold">
+                            {selectedMessage?.name} ({selectedMessage?.email})
+                        </p>
+                    </div>
+
+                    <div>
+                        <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
+                            Your Administrative Response
+                        </label>
+                        <textarea
+                            rows={6}
+                            value={replyText}
+                            onChange={(e) => setReplyText(e.target.value)}
+                            placeholder="Type your official response here. This will update the status to Resolved and notify the customer..."
+                            className="w-full p-3 text-xs sm:text-sm bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-100 focus:border-[#E33E33]"
+                        />
+                    </div>
+
+                    <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-gray-100">
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setShowReplyModal(false);
+                                setReplyText("");
+                            }}
+                            className="px-4 py-2 text-xs font-semibold text-gray-700 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-xl transition-colors"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="button"
+                            onClick={sendReply}
+                            disabled={!replyText.trim() || submittingReply}
+                            className="px-4 py-2 text-xs font-semibold text-white bg-[#E33E33] hover:bg-[#c9352b] rounded-xl transition-colors flex items-center gap-2 disabled:opacity-50"
+                        >
+                            {submittingReply ? (
+                                <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                            ) : (
+                                <Send className="w-3.5 h-3.5" />
+                            )}
+                            <span>Send Official Reply</span>
+                        </button>
+                    </div>
+                </div>
+            </AdminModal>
+
+            {/* Delete Confirmation Modal */}
+            <AdminConfirmModal
+                isOpen={Boolean(messageToDelete)}
+                onClose={() => setMessageToDelete(null)}
+                onConfirm={handleConfirmDelete}
+                loading={deleting}
+                title="Delete Support Inquiry"
+                variant="danger"
+                confirmText="Delete Message"
+                message={
+                    messageToDelete ? (
+                        <div>
+                            Are you sure you want to permanently delete the inquiry from{" "}
+                            <strong className="text-gray-900">{messageToDelete.name}</strong> regarding{" "}
+                            "{messageToDelete.subject}"?
+                        </div>
+                    ) : null
+                }
+            />
+        </div>
+    );
 }

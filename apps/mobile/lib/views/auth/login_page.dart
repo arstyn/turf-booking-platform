@@ -170,20 +170,23 @@ class _LoginPageState extends State<LoginPage> {
 
                               SizedBox(height: 14.h),
 
-                              Obx(() => MyButtons(
-                                    text: controller.isLoading.value
-                                        ? "Sending OTP..."
-                                        : "Send OTP",
-                                    height: 50.h,
-                                    width: double.infinity,
-                                    onTap: controller.isLoading.value
-                                        ? null
-                                        : () => _handleSendOtp(controller),
-                                    textStyle: textTheme.bodyMedium
-                                        ?.copyWith(color: Colors.white),
-                                    backgroundColor:
-                                        const Color(0xFFE43434),
-                                  )),
+                              Obx(() {
+                                final isSending = controller.isSendingOtp.value;
+                                final isGoogle = controller.isGoogleLoading.value;
+                                return MyButtons(
+                                  text: "Send OTP",
+                                  loadingText: "Sending OTP...",
+                                  isLoading: isSending,
+                                  height: 50.h,
+                                  width: double.infinity,
+                                  onTap: (isSending || isGoogle)
+                                      ? null
+                                      : () => _handleSendOtp(controller),
+                                  textStyle: textTheme.bodyMedium
+                                      ?.copyWith(color: Colors.white),
+                                  backgroundColor: const Color(0xFFE43434),
+                                );
+                              }),
                             ],
                           ),
                         ),
@@ -216,11 +219,18 @@ class _LoginPageState extends State<LoginPage> {
                         SizedBox(height: 20.h),
 
                         // ── GOOGLE ──
-                        SocialLogin(
-                          text: "Google",
-                          asset: AppAssets.google,
-                          onTap: () => controller.loginWithGoogle(),
-                        ),
+                        Obx(() {
+                          final isSending = controller.isSendingOtp.value;
+                          final isGoogle = controller.isGoogleLoading.value;
+                          return SocialLogin(
+                            text: "Google",
+                            asset: AppAssets.google,
+                            isLoading: isGoogle,
+                            onTap: (isGoogle || isSending)
+                                ? null
+                                : () => controller.loginWithGoogle(),
+                          );
+                        }),
 
                         const Spacer(flex: 3),
 
