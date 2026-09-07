@@ -13,6 +13,7 @@ import {
     AdminConfirmModal,
     AdminEmptyState,
     AdminFilterBar,
+    AdminModal,
     AdminPageHeader,
     AdminPagination,
     AdminStatCard,
@@ -42,6 +43,11 @@ export default function AdminUsers() {
     // Pagination
     const [currentPage, setCurrentPage] = useState(1);
     const [pageSize, setPageSize] = useState(10);
+
+    // Role Change Modal
+    const [userToUpdateRole, setUserToUpdateRole] = useState<User | null>(null);
+    const [selectedNewRole, setSelectedNewRole] = useState<User["role"]>("user");
+    const [updatingRole, setUpdatingRole] = useState(false);
 
     // Delete Modal
     const [userToDelete, setUserToDelete] = useState<User | null>(null);
@@ -73,30 +79,36 @@ export default function AdminUsers() {
         setTimeout(() => setActionFeedback(null), 3500);
     };
 
-    const handleUpdateUserRole = async (
-        targetUser: User,
-        newRole: User["role"],
-    ) => {
-        if (targetUser.role === newRole) return;
-        if (currentAdmin && targetUser.id === currentAdmin.id && newRole !== "admin") {
+    const handleConfirmRoleChange = async () => {
+        if (!userToUpdateRole) return;
+        if (userToUpdateRole.role === selectedNewRole) {
+            setUserToUpdateRole(null);
+            return;
+        }
+        if (currentAdmin && userToUpdateRole.id === currentAdmin.id && selectedNewRole !== "admin") {
             showFeedback("error", "You cannot demote your own active admin account.");
+            setUserToUpdateRole(null);
             return;
         }
         try {
-            await api.patch(`/users/${targetUser.id}`, { role: newRole });
+            setUpdatingRole(true);
+            await api.patch(`/users/${userToUpdateRole.id}`, { role: selectedNewRole });
             setUsers((prev) =>
-                prev.map((u) => (u.id === targetUser.id ? { ...u, role: newRole } : u)),
+                prev.map((u) => (u.id === userToUpdateRole.id ? { ...u, role: selectedNewRole } : u)),
             );
             showFeedback(
                 "success",
-                `Updated ${targetUser.firstName}'s role to ${newRole.replace("_", " ")}.`,
+                `Updated ${userToUpdateRole.firstName}'s role to ${selectedNewRole.replace("_", " ")}.`,
             );
+            setUserToUpdateRole(null);
         } catch (error: unknown) {
             const err = error as { response?: { data?: { message?: string } } };
             showFeedback(
                 "error",
                 err.response?.data?.message || "Failed to update user role",
             );
+        } finally {
+            setUpdatingRole(false);
         }
     };
 
@@ -390,47 +402,38 @@ export default function AdminUsers() {
 
                                                 {/* Role Permission */}
                                                 <td className="py-3.5 px-5">
-                                                    <div className="flex items-center gap-2">
-                                                        <AdminBadge status={u.role} />
-                                                        <select
-                                                            value={u.role}
-                                                            disabled={isSelf}
-                                                            onChange={(e) =>
-                                                                handleUpdateUserRole(
-                                                                    u,
-                                                                    e.target.value as User["role"],
-                                                                )
-                                                            }
-                                                            className="text-xs bg-gray-50 border border-gray-200 rounded-lg px-2 py-1 font-semibold text-gray-700 focus:outline-none focus:ring-1 focus:ring-red-200 disabled:opacity-40 disabled:cursor-not-allowed"
-                                                            title={
-                                                                isSelf
-                                                                    ? "Cannot alter own role"
-                                                                    : "Change role"
-                                                            }
-                                                        >
-                                                            <option value="user">User</option>
-                                                            <option value="turf_owner">
-                                                                Turf Owner
-                                                            </option>
-                                                            <option value="admin">Admin</option>
-                                                        </select>
-                                                    </div>
+                                                    <AdminBadge status={u.role} />
                                                 </td>
 
                                                 {/* Actions */}
                                                 <td className="py-3.5 px-5 text-right">
-                                                    <button
-                                                        onClick={() => setUserToDelete(u)}
-                                                        disabled={isSelf}
-                                                        className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                                                        title={
-                                                            isSelf
-                                                                ? "Cannot delete your own account"
-                                                                : "Delete User"
-                                                        }
-                                                    >
-                                                        <Trash2 className="w-4 h-4" />
-                                                    </button>
+                                                    <div className="inline-flex items-center gap-2 justify-end">
+                                                        {!isSelf && (
+                                                            <button
+                                                                onClick={() => {
+                                                                    setUserToUpdateRole(u);
+                                                                    setSelectedNewRole(u.role);
+                                                                }}
+                                                                className="px-2.5 py-1 text-xs font-semibold text-gray-700 hover:text-gray-900 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg transition-colors inline-flex items-center gap-1 shadow-xs"
+                                                                title="Change user role"
+                                                            >
+                                                                <Shield className="w-3 h-3 text-gray-400" />
+                                                                <span>Change Role</span>
+                                                            </button>
+                                                        )}
+                                                        <button
+                                                            onClick={() => setUserToDelete(u)}
+                                                            disabled={isSelf}
+                                                            className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                                                            title={
+                                                                isSelf
+                                                                    ? "Cannot delete your own account"
+                                                                    : "Delete User"
+                                                            }
+                                                        >
+                                                            <Trash2 className="w-4 h-4" />
+                                                        </button>
+                                                    </div>
                                                 </td>
                                             </tr>
                                         );
@@ -449,6 +452,67 @@ export default function AdminUsers() {
                     </>
                 )}
             </div>
+
+            {/* Role Change Modal */}
+            <AdminModal
+                isOpen={Boolean(userToUpdateRole)}
+                onClose={() => setUserToUpdateRole(null)}
+                title="Change User Role"
+                description={
+                    userToUpdateRole
+                        ? `Update permissions for ${userToUpdateRole.firstName} ${userToUpdateRole.lastName} (${userToUpdateRole.email || userToUpdateRole.phone || "No contact"})`
+                        : undefined
+                }
+                maxWidth="md"
+            >
+                <div className="space-y-4">
+                    <div>
+                        <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">
+                            Select New Role
+                        </label>
+                        <select
+                            value={selectedNewRole}
+                            onChange={(e) =>
+                                setSelectedNewRole(e.target.value as User["role"])
+                            }
+                            className="w-full p-2.5 text-xs sm:text-sm bg-gray-50 border border-gray-200 rounded-xl font-semibold text-gray-800 focus:outline-none focus:ring-2 focus:ring-red-100 focus:border-[#E33E33]"
+                        >
+                            <option value="user">User (Standard customer / booking account)</option>
+                            <option value="turf_owner">Turf Owner (Manage arenas, schedules & payouts)</option>
+                            <option value="admin">Admin (Full administrative access)</option>
+                        </select>
+                    </div>
+
+                    <div className="p-3 bg-gray-50 rounded-xl border border-gray-100 text-xs text-gray-500 flex items-center justify-between">
+                        <span>Current Active Role:</span>
+                        <strong className="text-gray-800 uppercase font-bold">
+                            {userToUpdateRole?.role.replace("_", " ")}
+                        </strong>
+                    </div>
+
+                    <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-gray-100">
+                        <button
+                            type="button"
+                            onClick={() => setUserToUpdateRole(null)}
+                            disabled={updatingRole}
+                            className="px-4 py-2 text-xs font-semibold text-gray-700 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-xl transition-colors"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="button"
+                            onClick={handleConfirmRoleChange}
+                            disabled={updatingRole || selectedNewRole === userToUpdateRole?.role}
+                            className="px-4 py-2 text-xs font-semibold text-white bg-[#E33E33] hover:bg-[#c9352b] rounded-xl transition-colors flex items-center gap-2 disabled:opacity-50"
+                        >
+                            {updatingRole && (
+                                <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                            )}
+                            <span>Confirm Role Change</span>
+                        </button>
+                    </div>
+                </div>
+            </AdminModal>
 
             {/* Delete Confirmation Modal */}
             <AdminConfirmModal
