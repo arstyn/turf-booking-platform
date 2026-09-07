@@ -226,11 +226,11 @@ class _OtpVerificationPageState extends State<OtpVerificationPage> {
             SizedBox(height: 32.h),
 
             Obx(() => MyButtons(
-                  text: controller.isLoading.value
-                      ? "Verifying..."
-                      : _isLoginMode
-                          ? "Sign In"
-                          : "Verify & Create Account",
+                  text: _isLoginMode
+                      ? "Sign In"
+                      : "Verify & Create Account",
+                  loadingText: "Verifying...",
+                  isLoading: controller.isLoading.value,
                   height: 50.h,
                   width: double.infinity,
                   onTap: controller.isLoading.value

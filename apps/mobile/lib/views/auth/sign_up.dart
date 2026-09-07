@@ -343,12 +343,12 @@ class _SignUpState extends State<SignUp> {
                   /// CONTINUE BUTTON
                   Obx(
                     () => MyButtons(
-                      text: controller.isLoading.value
-                          ? "Sending OTP..."
-                          : "Continue",
+                      text: "Continue",
+                      loadingText: "Sending OTP...",
+                      isLoading: controller.isSendingOtp.value,
                       height: 50.h,
                       width: double.infinity,
-                      onTap: (controller.isLoading.value || !_agreedToTerms)
+                      onTap: (controller.isSendingOtp.value || !_agreedToTerms)
                           ? null
                           : () => controller.requestRegistrationOtp(),
                       textStyle: textTheme.bodyMedium?.copyWith(

@@ -1,6 +1,6 @@
-import 'package:dot_loader/dot_loader.dart';
 import 'package:flutter/material.dart';
 import 'package:mobile/core/theme/app_colors.dart';
+import 'package:mobile/views/widgets/loading_spinner.dart';
 
 class MyButtons extends StatelessWidget {
   final String text;
@@ -12,6 +12,8 @@ class MyButtons extends StatelessWidget {
   final Widget? prefix;
   final Widget? suffix;
   final bool isLoading;
+  final String? loadingText;
+  final Color? loaderColor;
 
   const MyButtons({
     super.key,
@@ -24,12 +26,12 @@ class MyButtons extends StatelessWidget {
     this.prefix,
     this.suffix,
     this.isLoading = false,
+    this.loadingText,
+    this.loaderColor,
   });
 
   @override
   Widget build(BuildContext context) {
-    // final colors = Theme.of(context).extension<AppColors>()!;
-    
     return SizedBox(
       height: height,
       width: width,
@@ -39,15 +41,15 @@ class MyButtons extends StatelessWidget {
           backgroundColor: backgroundColor,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           elevation: 0,
-          disabledBackgroundColor: backgroundColor,
+          disabledBackgroundColor: backgroundColor.withOpacity(0.8),
         ),
         child: isLoading
-            ? SizedBox(
-                height: 21,
-                child: DotedLoader(
-                  count: 4,
-                  color: textStyle?.color ?? Colors.white,
-                ),
+            ? LoadingSpinner(
+                size: 20,
+                strokeWidth: 2.5,
+                color: loaderColor ?? textStyle?.color ?? Colors.white,
+                text: loadingText,
+                textStyle: textStyle,
               )
             : Row(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -77,6 +79,8 @@ class MyOutlinedButton extends StatelessWidget {
   final double borderWidth;
   final EdgeInsetsGeometry? padding;
   final bool isLoading;
+  final String? loadingText;
+  final Color? loaderColor;
 
   const MyOutlinedButton({
     super.key,
@@ -94,6 +98,8 @@ class MyOutlinedButton extends StatelessWidget {
     this.borderWidth = 1.8,
     this.padding,
     this.isLoading = false,
+    this.loadingText,
+    this.loaderColor,
   });
 
   @override
@@ -119,12 +125,16 @@ class MyOutlinedButton extends StatelessWidget {
           foregroundColor: effectiveTextColor,
         ),
         child: isLoading
-            ? SizedBox(
-                height: 21,
-                child: DotedLoader(
-                  count: 4,
-                  color: effectiveTextColor,
-                ),
+            ? LoadingSpinner(
+                size: 20,
+                strokeWidth: 2.2,
+                color: loaderColor ?? effectiveTextColor,
+                text: loadingText,
+                textStyle: textStyle ??
+                    Theme.of(context).textTheme.bodyLarge?.copyWith(
+                          color: effectiveTextColor,
+                          fontWeight: FontWeight.w600,
+                        ),
               )
             : Row(
                 mainAxisAlignment: MainAxisAlignment.center,

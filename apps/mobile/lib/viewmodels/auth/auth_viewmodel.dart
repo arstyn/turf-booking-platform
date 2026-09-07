@@ -56,6 +56,8 @@ class AuthViewmodel extends GetxController {
   // Observable State
   // ──────────────────────────────────────────────
   var isLoading = false.obs;
+  var isGoogleLoading = false.obs;
+  var isSendingOtp = false.obs;
   var selectedRole = 'user'.obs;
   var otpSent = false.obs;
   var token = ''.obs;
@@ -168,7 +170,6 @@ class AuthViewmodel extends GetxController {
 
       if (response['success']) {
         _saveSession(response['data']);
-        _showSuccess('Login successful');
         Get.offAllNamed(RoutePaths.home);
       } else {
         _showError(response['message'] ?? 'Login failed');
@@ -198,7 +199,6 @@ class AuthViewmodel extends GetxController {
 
       if (response['success']) {
         _saveSession(response['data']);
-        _showSuccess('Admin login successful');
         Get.toNamed('/admin/dashboard');
       } else {
         _showError(response['message'] ?? 'Admin login failed');
@@ -215,6 +215,7 @@ class AuthViewmodel extends GetxController {
   // ──────────────────────────────────────────────
   Future<void> loginWithGoogle() async {
     try {
+      isGoogleLoading.value = true;
       isLoading.value = true;
       print('[Google] start');
       print(
@@ -261,7 +262,6 @@ class AuthViewmodel extends GetxController {
 
       if (response['success'] == true && response['data'] != null) {
         _saveSession(response['data']);
-        _showSuccess('Signed in with Google');
         Get.offAllNamed(RoutePaths.home);
       } else {
         _showError(response['message'] ?? 'Google login failed');
@@ -270,14 +270,14 @@ class AuthViewmodel extends GetxController {
       print(
         '[Google] GoogleSignInException: code=${e.code}, description="${e.description}"',
       );
-      final desc = e.description ?? '';
-      final isRealCancel =
-          e.code == GoogleSignInExceptionCode.canceled &&
-          !desc.toLowerCase().contains('reauth') &&
-          !desc.toLowerCase().contains('failed') &&
-          !desc.contains('16');
-      if (isRealCancel) {
+      if (e.code == GoogleSignInExceptionCode.canceled) {
         print('[Google] User dismissed sign-in prompt.');
+        return;
+      }
+      final desc = e.description ?? '';
+      final lower = desc.toLowerCase();
+      if (lower.contains('cancel') || lower.contains('interrupted')) {
+        print('[Google] User cancelled sign-in.');
         return;
       }
       _showError(
@@ -285,8 +285,16 @@ class AuthViewmodel extends GetxController {
       );
     } catch (e) {
       print('[Google] generic error: $e');
+      final errStr = e.toString().toLowerCase();
+      if (errStr.contains('cancel') ||
+          errStr.contains('12501') ||
+          errStr.contains('interrupted')) {
+        print('[Google] User cancelled sign-in.');
+        return;
+      }
       _showError('Google Sign-In error: ${e.toString()}');
     } finally {
+      isGoogleLoading.value = false;
       isLoading.value = false;
       print('[Google] done, isLoading=false');
     }
@@ -331,6 +339,7 @@ class AuthViewmodel extends GetxController {
     }
 
     try {
+      isSendingOtp.value = true;
       isLoading.value = true;
 
       Map<String, dynamic> response;
@@ -351,6 +360,7 @@ class AuthViewmodel extends GetxController {
     } catch (e) {
       _showError(e.toString());
     } finally {
+      isSendingOtp.value = false;
       isLoading.value = false;
     }
   }
@@ -405,6 +415,7 @@ class AuthViewmodel extends GetxController {
     final phone = phoneController.text.trim();
 
     try {
+      isSendingOtp.value = true;
       isLoading.value = true;
 
       Map<String, dynamic> response;
@@ -426,6 +437,7 @@ class AuthViewmodel extends GetxController {
     } catch (e) {
       _showError(e.toString());
     } finally {
+      isSendingOtp.value = false;
       isLoading.value = false;
     }
   }
@@ -442,6 +454,7 @@ class AuthViewmodel extends GetxController {
     }
 
     try {
+      isSendingOtp.value = true;
       isLoading.value = true;
       final response = await _authService.requestPhoneOtp(phone: phone);
 
@@ -454,6 +467,7 @@ class AuthViewmodel extends GetxController {
     } catch (e) {
       _showError(e.toString());
     } finally {
+      isSendingOtp.value = false;
       isLoading.value = false;
     }
   }
@@ -466,6 +480,7 @@ class AuthViewmodel extends GetxController {
     }
 
     try {
+      isSendingOtp.value = true;
       isLoading.value = true;
       final response = await _authService.requestEmailOtp(email: email);
 
@@ -478,6 +493,7 @@ class AuthViewmodel extends GetxController {
     } catch (e) {
       _showError(e.toString());
     } finally {
+      isSendingOtp.value = false;
       isLoading.value = false;
     }
   }
@@ -500,7 +516,6 @@ class AuthViewmodel extends GetxController {
 
       if (response['success']) {
         _saveSession(response['data']);
-        _showSuccess('Login successful');
         Get.offAllNamed(RoutePaths.home);
       } else {
         _showError(response['message'] ?? 'Login failed');
@@ -530,7 +545,6 @@ class AuthViewmodel extends GetxController {
 
       if (response['success']) {
         _saveSession(response['data']);
-        _showSuccess('Login successful');
         Get.offAllNamed(RoutePaths.home);
       } else {
         _showError(response['message'] ?? 'Login failed');
@@ -777,7 +791,6 @@ class AuthViewmodel extends GetxController {
     }
     token.value = googleToken;
     Get.find<LocalStorageService>().saveToken(token: googleToken);
-    _showSuccess('Signed in with Google');
     Get.offAllNamed(RoutePaths.home);
   }
 
@@ -789,6 +802,8 @@ class AuthViewmodel extends GetxController {
     token.value = '';
     currentUser.clear();
     otpSent.value = false;
+    isSendingOtp.value = false;
+    isGoogleLoading.value = false;
     _googleAccount = null;
     _clearControllers();
     Get.find<LocalStorageService>().clearAll();
@@ -806,6 +821,8 @@ class AuthViewmodel extends GetxController {
     lastNameController.clear();
     phoneController.clear();
     otpController.clear();
+    isSendingOtp.value = false;
+    isGoogleLoading.value = false;
   }
 
   @override
