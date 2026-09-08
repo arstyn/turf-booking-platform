@@ -1,9 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Resend } from 'resend';
 import { Repository } from 'typeorm';
 import { Otp } from '../database/entities/otp.entity';
+import { EmailService } from '../email/email.service';
 
 @Injectable()
 export class OtpService {
@@ -13,6 +13,7 @@ export class OtpService {
     private configService: ConfigService,
     @InjectRepository(Otp)
     private otpRepository: Repository<Otp>,
+    private emailService: EmailService,
   ) {
     this.isProduction = this.configService.get('NODE_ENV') === 'production';
   }
@@ -39,71 +40,16 @@ export class OtpService {
     }
 
     // In production, integrate with SMS service (Twilio, AWS SNS, etc.)
-    // Example with Twilio:
-    // const accountSid = this.configService.get('TWILIO_ACCOUNT_SID');
-    // const authToken = this.configService.get('TWILIO_AUTH_TOKEN');
-    // const client = require('twilio')(accountSid, authToken);
-    // await client.messages.create({
-    //   body: `Your OTP is: ${otp}`,
-    //   from: this.configService.get('TWILIO_PHONE_NUMBER'),
-    //   to: phone,
-    // });
-
     // For now, return true (implement actual SMS service)
     console.log(`[PROD] SMS OTP for ${phone}: ${otp}`);
     return true;
   }
 
   /**
-   * Send OTP via Email (production) or return it directly (development)
+   * Send OTP via Email using the redesigned modern template
    */
   async sendEmailOtp(email: string, otp: string): Promise<boolean> {
-    if (!this.isProduction) {
-      // In development, just log the OTP for easier testing
-      console.log(`[DEV] Email OTP for ${email}: ${otp}`);
-      return true;
-    }
-
-    try {
-      // Use Resend SDK
-      const apiKey = this.configService.get<string>('RESEND_API_KEY');
-      const from =
-        this.configService.get<string>('EMAIL_FROM') ||
-        'Acme <onboarding@resend.dev>';
-
-      if (!apiKey) {
-        console.error(
-          'Email API key not found in environment variables (RESEND_API_KEY)',
-        );
-        return false;
-      }
-
-      const resend = new Resend(apiKey);
-
-      const { data, error } = await resend.emails.send({
-        from,
-        to: [email],
-        subject: `Your OTP Code: ${otp}`,
-        html: `
-                    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
-                        <h2>Verification Code</h2>
-                        <p>Your one-time password (OTP) is:</p>
-                        <h1 style="color: #16a34a; letter-spacing: 5px; font-size: 32px;">${otp}</h1>
-                        <p>This code will expire in 10 minutes.</p>
-                    </div>
-                `,
-      });
-
-      if (error) {
-        console.error('Failed to send OTP email via Resend SDK:', error);
-        return false;
-      }
-
-      return true;
-    } catch (err) {
-      console.error('Failed to send OTP email via API', err);
-      return false;
-    }
+    return this.emailService.sendOtpEmail(email, otp, 10);
   }
 
   /**
@@ -187,7 +133,10 @@ export class OtpService {
    * Request OTP for email
    */
   async requestEmailOtp(email: string): Promise<{ expiresIn: number }> {
-    if (email === 'playstore_user@example.com' || email === 'playstore_owner@turf.com') {
+    if (
+      email === 'playstore_user@example.com' ||
+      email === 'playstore_owner@turf.com'
+    ) {
       return { expiresIn: 600 };
     }
     const otpCode = this.generateOtp();
