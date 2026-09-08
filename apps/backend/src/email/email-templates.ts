@@ -144,7 +144,15 @@ export function formatDateTimeAmPm(date: Date | string | number): string {
 export function baseEmailLayout(options: BaseEmailOptions): string {
   const currentYear = new Date().getFullYear();
   const webUrl = options.frontendUrl || 'https://lockkiyajaye.com';
-  const logoSrc = options.logoUrl || `${webUrl}/logo.png`;
+  let logoSrc = options.logoUrl;
+  if (
+    !logoSrc ||
+    logoSrc.startsWith('cid:') ||
+    logoSrc.includes('localhost') ||
+    logoSrc.includes('127.0.0.1')
+  ) {
+    logoSrc = 'https://lockkiyajaye.com/logo.png';
+  }
 
   const badgeHtml = options.badge
     ? `

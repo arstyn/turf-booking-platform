@@ -1,7 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import * as fs from 'fs';
-import * as path from 'path';
 import { Resend } from 'resend';
 import {
   BookingConfirmationOptions,
@@ -45,25 +43,25 @@ export class EmailService {
   }
 
   /**
-   * Helper to resolve local brand logo for inline CID attachment and web fallback
+   * Helper to resolve public brand logo URL for outbound emails.
+   * Uses hosted public HTTPS URL so that Gmail, Apple Mail, and Outlook
+   * can fetch and display it cleanly without broken images or file attachment prompts.
    */
-  private getLogoConfig(): { attachments?: any[]; logoUrl?: string } {
-    const logoPath = path.resolve(__dirname, '../../public/logo.png');
-    if (fs.existsSync(logoPath)) {
-      return {
-        logoUrl: 'cid:lockkiyajayelogo',
-        attachments: [
-          {
-            filename: 'logo.png',
-            content: fs.readFileSync(logoPath),
-            cid: 'lockkiyajayelogo',
-          },
-        ],
-      };
+  private getLogoUrl(): string {
+    const configuredLogo = this.configService.get<string>('LOGO_URL');
+    if (configuredLogo) {
+      return configuredLogo;
     }
-    return {
-      logoUrl: `${this.frontendUrl}/logo.png`,
-    };
+
+    if (
+      this.frontendUrl &&
+      !this.frontendUrl.includes('localhost') &&
+      !this.frontendUrl.includes('127.0.0.1')
+    ) {
+      return `${this.frontendUrl}/logo.png`;
+    }
+
+    return 'https://lockkiyajaye.com/logo.png';
   }
 
   /**
@@ -135,7 +133,7 @@ export class EmailService {
     otp: string,
     expiresInMinutes: number = 10,
   ): Promise<boolean> {
-    const { logoUrl, attachments } = this.getLogoConfig();
+    const logoUrl = this.getLogoUrl();
     const { html, text } = renderOtpEmail({
       otp,
       recipientEmail: email,
@@ -153,7 +151,6 @@ export class EmailService {
       subject: `${otp} is your Lock Kiya Jaye verification code`,
       html,
       text,
-      attachments,
     });
   }
 
@@ -168,7 +165,7 @@ export class EmailService {
   }): Promise<boolean> {
     const adminEmail =
       this.configService.get<string>('ADMIN_EMAIL') || 'admin@lockkiyajaye.com';
-    const { logoUrl, attachments } = this.getLogoConfig();
+    const logoUrl = this.getLogoUrl();
     const { html, text } = renderContactNotificationEmail({
       name: contactData.name,
       email: contactData.email,
@@ -184,7 +181,6 @@ export class EmailService {
       subject: `[New Inquiry] ${contactData.subject} from ${contactData.name}`,
       html,
       text,
-      attachments,
     });
   }
 
@@ -198,7 +194,7 @@ export class EmailService {
     adminResponse: string;
     respondedBy: string;
   }): Promise<boolean> {
-    const { logoUrl, attachments } = this.getLogoConfig();
+    const logoUrl = this.getLogoUrl();
     const { html, text } = renderAdminResponseEmail({
       customerName: responseData.customerName,
       customerEmail: responseData.customerEmail,
@@ -215,7 +211,6 @@ export class EmailService {
       subject: `Re: ${responseData.subject} - Lock Kiya Jaye Support`,
       html,
       text,
-      attachments,
     });
   }
 
@@ -225,7 +220,7 @@ export class EmailService {
   async sendBookingConfirmation(
     bookingData: BookingConfirmationOptions & { email: string },
   ): Promise<boolean> {
-    const { logoUrl, attachments } = this.getLogoConfig();
+    const logoUrl = this.getLogoUrl();
     const { html, text } = renderBookingConfirmationEmail({
       ...bookingData,
       frontendUrl: this.frontendUrl,
@@ -241,7 +236,6 @@ export class EmailService {
       subject: `Booking Confirmed! ⚽ ${bookingData.turfName}${shortId ? ` (#${shortId})` : ''}`,
       html,
       text,
-      attachments,
     });
   }
 }
