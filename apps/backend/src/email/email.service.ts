@@ -1,22 +1,160 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import * as fs from 'fs';
+import * as path from 'path';
 import { Resend } from 'resend';
+import {
+  BookingConfirmationOptions,
+  renderAdminResponseEmail,
+  renderBookingConfirmationEmail,
+  renderContactNotificationEmail,
+  renderOtpEmail,
+} from './email-templates';
 
 @Injectable()
 export class EmailService {
-  private readonly resend: Resend;
+  private readonly logger = new Logger(EmailService.name);
+  private readonly resend?: Resend;
   private readonly fromEmail: string;
   private readonly isProduction: boolean;
+  private readonly frontendUrl: string;
 
   constructor(private configService: ConfigService) {
     this.isProduction = this.configService.get('NODE_ENV') === 'production';
     const apiKey = this.configService.get<string>('RESEND_API_KEY');
-    
+
     if (apiKey) {
       this.resend = new Resend(apiKey);
+    } else {
+      this.logger.warn(
+        'RESEND_API_KEY is not configured. Outbound emails will only be logged.',
+      );
     }
-    
-    this.fromEmail = this.configService.get<string>('EMAIL_FROM') || 'Lock Kiya Jaye <noreply@lockkiyajaye.com>';
+
+    const configuredFrom =
+      this.configService.get<string>('EMAIL_FROM') ||
+      'no-reply@lockkiyajaye.com';
+    // Ensure the sender displays as "Lock Kiya Jaye <email>" if not already formatted
+    this.fromEmail = configuredFrom.includes('<')
+      ? configuredFrom
+      : `Lock Kiya Jaye <${configuredFrom}>`;
+
+    this.frontendUrl =
+      this.configService.get<string>('FRONTEND_URL') ||
+      'https://lockkiyajaye.com';
+  }
+
+  /**
+   * Helper to resolve local brand logo for inline CID attachment and web fallback
+   */
+  private getLogoConfig(): { attachments?: any[]; logoUrl?: string } {
+    const logoPath = path.resolve(__dirname, '../../public/logo.png');
+    if (fs.existsSync(logoPath)) {
+      return {
+        logoUrl: 'cid:lockkiyajayelogo',
+        attachments: [
+          {
+            filename: 'logo.png',
+            content: fs.readFileSync(logoPath),
+            cid: 'lockkiyajayelogo',
+          },
+        ],
+      };
+    }
+    return {
+      logoUrl: `${this.frontendUrl}/logo.png`,
+    };
+  }
+
+  /**
+   * Generic mail sender wrapping Resend with dev logging and graceful fallback
+   */
+  async sendEmail(params: {
+    to: string | string[];
+    subject: string;
+    html: string;
+    text?: string;
+    attachments?: any[];
+  }): Promise<boolean> {
+    const recipients = Array.isArray(params.to) ? params.to : [params.to];
+
+    // Always log in development for immediate visibility
+    if (!this.isProduction) {
+      this.logger.log(
+        `[DEV EMAIL] Outgoing to [${recipients.join(', ')}] | Subject: "${params.subject}"`,
+      );
+    }
+
+    if (!this.resend) {
+      if (this.isProduction) {
+        this.logger.error(
+          'Cannot send email in production: RESEND_API_KEY is missing',
+        );
+        return false;
+      }
+      return true;
+    }
+
+    try {
+      const { data, error } = await this.resend.emails.send({
+        from: this.fromEmail,
+        to: recipients,
+        subject: params.subject,
+        html: params.html,
+        text: params.text,
+        attachments: params.attachments,
+      });
+
+      if (error) {
+        this.logger.error(
+          `Resend email delivery failed: ${error.message} (code: ${error.name})`,
+          error,
+        );
+        // In dev mode, return true so authentication/flows don't get blocked if sender domain is unverified
+        return !this.isProduction;
+      }
+
+      this.logger.log(
+        `Email successfully sent via Resend. Message ID: ${data?.id}`,
+      );
+      return true;
+    } catch (err: any) {
+      this.logger.error(
+        `Unexpected error during email delivery: ${err?.message || err}`,
+        err?.stack,
+      );
+      return !this.isProduction;
+    }
+  }
+
+  /**
+   * Send One-Time Password (OTP) verification email
+   */
+  async sendOtpEmail(
+    email: string,
+    otp: string,
+    expiresInMinutes: number = 10,
+  ): Promise<boolean> {
+    const { logoUrl, attachments } = this.getLogoConfig();
+    const { html, text } = renderOtpEmail({
+      otp,
+      recipientEmail: email,
+      expiresInMinutes,
+      frontendUrl: this.frontendUrl,
+      logoUrl,
+    });
+
+    this.logger.log(
+      `[OTP VERIFICATION] Generated OTP ${otp} for ${email} (valid ${expiresInMinutes}m)`,
+    );
+
+    return this.sendEmail({
+      to: email,
+      subject: `${otp} is your Lock Kiya Jaye verification code`,
+      html,
+      text,
+      attachments,
+    });
   }
 
   /**
@@ -28,77 +166,30 @@ export class EmailService {
     subject: string;
     message: string;
   }): Promise<boolean> {
-    if (!this.isProduction) {
-      console.log(`[DEV] Contact form submission:`, contactData);
-      return true;
-    }
+    const adminEmail =
+      this.configService.get<string>('ADMIN_EMAIL') || 'admin@lockkiyajaye.com';
+    const { logoUrl, attachments } = this.getLogoConfig();
+    const { html, text } = renderContactNotificationEmail({
+      name: contactData.name,
+      email: contactData.email,
+      subject: contactData.subject,
+      message: contactData.message,
+      frontendUrl: this.frontendUrl,
+      submittedAt: new Date(),
+      logoUrl,
+    });
 
-    if (!this.resend) {
-      console.error('Resend not configured - missing RESEND_API_KEY');
-      return false;
-    }
-
-    try {
-      const { data, error } = await this.resend.emails.send({
-        from: this.fromEmail,
-        to: [this.configService.get<string>('ADMIN_EMAIL') || 'admin@lockkiyajaye.com'],
-        subject: `New Contact Form Submission: ${contactData.subject}`,
-        html: `
-          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
-            <div style="background: #16a34a; color: white; padding: 20px; text-align: center;">
-              <h1 style="margin: 0;">New Contact Message</h1>
-            </div>
-            <div style="padding: 20px; background: #f9fafb;">
-              <h2 style="color: #16a34a; margin-top: 0;">Contact Details</h2>
-              <table style="width: 100%; border-collapse: collapse;">
-                <tr>
-                  <td style="padding: 8px; font-weight: bold; border-bottom: 1px solid #e5e7eb;">Name:</td>
-                  <td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">${contactData.name}</td>
-                </tr>
-                <tr>
-                  <td style="padding: 8px; font-weight: bold; border-bottom: 1px solid #e5e7eb;">Email:</td>
-                  <td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">${contactData.email}</td>
-                </tr>
-                <tr>
-                  <td style="padding: 8px; font-weight: bold; border-bottom: 1px solid #e5e7eb;">Subject:</td>
-                  <td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">${contactData.subject}</td>
-                </tr>
-              </table>
-              
-              <h3 style="color: #16a34a; margin-top: 20px;">Message</h3>
-              <div style="background: white; padding: 15px; border-radius: 8px; border-left: 4px solid #16a34a;">
-                <p style="margin: 0; white-space: pre-wrap;">${contactData.message}</p>
-              </div>
-              
-              <div style="text-align: center; margin-top: 30px;">
-                <a href="${this.configService.get('FRONTEND_URL')}/admin/contact" 
-                   style="background: #16a34a; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
-                  View in Admin Panel
-                </a>
-              </div>
-            </div>
-            <div style="background: #f3f4f6; padding: 15px; text-align: center; font-size: 12px; color: #6b7280;">
-              <p>This message was sent from the Lock Kiya Jaye contact form.</p>
-            </div>
-          </div>
-        `,
-      });
-
-      if (error) {
-        console.error('Failed to send contact notification:', error);
-        return false;
-      }
-
-      console.log('Contact notification sent successfully:', data);
-      return true;
-    } catch (error) {
-      console.error('Error sending contact notification:', error);
-      return false;
-    }
+    return this.sendEmail({
+      to: adminEmail,
+      subject: `[New Inquiry] ${contactData.subject} from ${contactData.name}`,
+      html,
+      text,
+      attachments,
+    });
   }
 
   /**
-   * Send admin response to customer
+   * Send admin support response to customer
    */
   async sendAdminResponse(responseData: {
     customerEmail: string;
@@ -107,68 +198,50 @@ export class EmailService {
     adminResponse: string;
     respondedBy: string;
   }): Promise<boolean> {
-    if (!this.isProduction) {
-      console.log(`[DEV] Admin response to ${responseData.customerEmail}:`, responseData);
-      return true;
-    }
+    const { logoUrl, attachments } = this.getLogoConfig();
+    const { html, text } = renderAdminResponseEmail({
+      customerName: responseData.customerName,
+      customerEmail: responseData.customerEmail,
+      subject: responseData.subject,
+      adminResponse: responseData.adminResponse,
+      respondedBy: responseData.respondedBy,
+      frontendUrl: this.frontendUrl,
+      respondedAt: new Date(),
+      logoUrl,
+    });
 
-    if (!this.resend) {
-      console.error('Resend not configured - missing RESEND_API_KEY');
-      return false;
-    }
+    return this.sendEmail({
+      to: responseData.customerEmail,
+      subject: `Re: ${responseData.subject} - Lock Kiya Jaye Support`,
+      html,
+      text,
+      attachments,
+    });
+  }
 
-    try {
-      const { data, error } = await this.resend.emails.send({
-        from: this.fromEmail,
-        to: [responseData.customerEmail],
-        subject: `Re: ${responseData.subject}`,
-        html: `
-          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
-            <div style="background: #16a34a; color: white; padding: 20px; text-align: center;">
-              <h1 style="margin: 0;">Response from Lock Kiya Jaye</h1>
-            </div>
-            <div style="padding: 20px; background: #f9fafb;">
-              <h2 style="color: #16a34a; margin-top: 0;">Hello ${responseData.customerName},</h2>
-              <p>Thank you for contacting us. We've received your message and our team has responded:</p>
-              
-              <div style="background: white; padding: 15px; border-radius: 8px; border-left: 4px solid #16a34a; margin: 20px 0;">
-                <h3 style="color: #16a34a; margin-top: 0;">Our Response:</h3>
-                <p style="margin: 10px 0; white-space: pre-wrap;">${responseData.adminResponse}</p>
-              </div>
-              
-              <div style="background: #f3f4f6; padding: 15px; border-radius: 8px; margin-top: 20px;">
-                <p style="margin: 0; font-size: 14px; color: #6b7280;">
-                  <strong>Responded by:</strong> ${responseData.respondedBy}<br>
-                  <strong>Original Subject:</strong> ${responseData.subject}
-                </p>
-              </div>
-              
-              <div style="text-align: center; margin-top: 30px;">
-                <p style="margin-bottom: 15px; color: #6b7280;">If you have any further questions, please don't hesitate to contact us.</p>
-                <a href="${this.configService.get('FRONTEND_URL')}/contact" 
-                   style="background: #16a34a; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
-                  Contact Us Again
-                </a>
-              </div>
-            </div>
-            <div style="background: #f3f4f6; padding: 15px; text-align: center; font-size: 12px; color: #6b7280;">
-              <p>This is an automated response from Lock Kiya Jaye.</p>
-              <p>© ${new Date().getFullYear()} Lock Kiya Jaye. All rights reserved.</p>
-            </div>
-          </div>
-        `,
-      });
+  /**
+   * Send booking confirmation email
+   */
+  async sendBookingConfirmation(
+    bookingData: BookingConfirmationOptions & { email: string },
+  ): Promise<boolean> {
+    const { logoUrl, attachments } = this.getLogoConfig();
+    const { html, text } = renderBookingConfirmationEmail({
+      ...bookingData,
+      frontendUrl: this.frontendUrl,
+      logoUrl,
+    });
 
-      if (error) {
-        console.error('Failed to send admin response:', error);
-        return false;
-      }
+    const shortId = bookingData.bookingId
+      ? bookingData.bookingId.slice(-6).toUpperCase()
+      : '';
 
-      console.log('Admin response sent successfully:', data);
-      return true;
-    } catch (error) {
-      console.error('Error sending admin response:', error);
-      return false;
-    }
+    return this.sendEmail({
+      to: bookingData.email,
+      subject: `Booking Confirmed! ⚽ ${bookingData.turfName}${shortId ? ` (#${shortId})` : ''}`,
+      html,
+      text,
+      attachments,
+    });
   }
 }

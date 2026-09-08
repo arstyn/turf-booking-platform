@@ -11,6 +11,7 @@ import {
     AdminBadge,
     AdminEmptyState,
     AdminFilterBar,
+    AdminModal,
     AdminPageHeader,
     AdminPagination,
     AdminStatCard,
@@ -26,7 +27,10 @@ export default function AdminBookings() {
     const [sortBy, setSortBy] = useState<"newest" | "slot_asc" | "slot_desc" | "amount_desc">(
         "newest",
     );
-    const [updatingBookingId, setUpdatingBookingId] = useState<string | null>(null);
+    // Status Update Modal
+    const [bookingToUpdate, setBookingToUpdate] = useState<Booking | null>(null);
+    const [selectedNewStatus, setSelectedNewStatus] = useState<BookingStatus>("pending");
+    const [updatingStatus, setUpdatingStatus] = useState(false);
 
     // Pagination
     const [currentPage, setCurrentPage] = useState(1);
@@ -62,17 +66,27 @@ export default function AdminBookings() {
         setTimeout(() => setFeedback(null), 3500);
     };
 
-    const handleUpdateStatus = async (
-        bookingId: string,
-        status: BookingStatus,
-    ) => {
+    const handleConfirmStatusUpdate = async () => {
+        if (!bookingToUpdate) return;
+        if (bookingToUpdate.status === selectedNewStatus) {
+            setBookingToUpdate(null);
+            return;
+        }
         try {
-            setUpdatingBookingId(bookingId);
-            await api.patch(`/bookings/${bookingId}/status`, { status });
+            setUpdatingStatus(true);
+            await api.patch(`/bookings/${bookingToUpdate.id}/status`, {
+                status: selectedNewStatus,
+            });
             setBookings((prev) =>
-                prev.map((b) => (b.id === bookingId ? { ...b, status } : b)),
+                prev.map((b) =>
+                    b.id === bookingToUpdate.id ? { ...b, status: selectedNewStatus } : b,
+                ),
             );
-            showFeedback("success", `Booking status updated to ${status}.`);
+            showFeedback(
+                "success",
+                `Booking #${bookingToUpdate.id.slice(0, 8)} status updated to ${selectedNewStatus}.`,
+            );
+            setBookingToUpdate(null);
         } catch (error: unknown) {
             const err = error as { response?: { data?: { message?: string } } };
             showFeedback(
@@ -80,7 +94,7 @@ export default function AdminBookings() {
                 err.response?.data?.message || "Failed to update booking status",
             );
         } finally {
-            setUpdatingBookingId(null);
+            setUpdatingStatus(false);
         }
     };
 
@@ -305,7 +319,6 @@ export default function AdminBookings() {
                                         const initials =
                                             `${b.user?.firstName?.charAt(0) || ""}${b.user?.lastName?.charAt(0) || ""}`.toUpperCase() ||
                                             "C";
-                                        const isUpdating = updatingBookingId === b.id;
 
                                         return (
                                             <tr
@@ -393,38 +406,16 @@ export default function AdminBookings() {
                                                 <td className="py-3.5 px-5 text-right">
                                                     <div className="inline-flex items-center gap-2">
                                                         <AdminBadge status={b.status} />
-
-                                                        <div className="relative">
-                                                            <select
-                                                                disabled={isUpdating}
-                                                                value={b.status}
-                                                                onChange={(e) =>
-                                                                    handleUpdateStatus(
-                                                                        b.id,
-                                                                        e.target.value as BookingStatus,
-                                                                    )
-                                                                }
-                                                                className="text-xs bg-gray-50 border border-gray-200 rounded-lg px-2 py-1 font-semibold text-gray-700 focus:outline-none focus:ring-1 focus:ring-red-200 disabled:opacity-40"
-                                                                title="Override status"
-                                                            >
-                                                                <option value="pending">
-                                                                    Set Pending
-                                                                </option>
-                                                                <option value="confirmed">
-                                                                    Set Confirmed
-                                                                </option>
-                                                                <option value="completed">
-                                                                    Set Completed
-                                                                </option>
-                                                                <option value="cancelled">
-                                                                    Set Cancelled
-                                                                </option>
-                                                            </select>
-                                                        </div>
-
-                                                        {isUpdating && (
-                                                            <div className="w-3.5 h-3.5 border-2 border-red-500 border-t-transparent rounded-full animate-spin" />
-                                                        )}
+                                                        <button
+                                                            onClick={() => {
+                                                                setBookingToUpdate(b);
+                                                                setSelectedNewStatus(b.status);
+                                                            }}
+                                                            className="px-2.5 py-1 text-xs font-semibold text-gray-700 hover:text-gray-900 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg transition-colors"
+                                                            title="Update booking status"
+                                                        >
+                                                            Update Status
+                                                        </button>
                                                     </div>
                                                 </td>
                                             </tr>
@@ -444,6 +435,68 @@ export default function AdminBookings() {
                     </>
                 )}
             </div>
+
+            {/* Status Update Modal */}
+            <AdminModal
+                isOpen={Boolean(bookingToUpdate)}
+                onClose={() => setBookingToUpdate(null)}
+                title="Update Booking Status"
+                description={
+                    bookingToUpdate
+                        ? `Booking #${bookingToUpdate.id.slice(0, 8)} for ${bookingToUpdate.turf?.name || "Facility"}`
+                        : undefined
+                }
+                maxWidth="md"
+            >
+                <div className="space-y-4">
+                    <div>
+                        <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">
+                            Select New Status
+                        </label>
+                        <select
+                            value={selectedNewStatus}
+                            onChange={(e) =>
+                                setSelectedNewStatus(e.target.value as BookingStatus)
+                            }
+                            className="w-full p-2.5 text-xs sm:text-sm bg-gray-50 border border-gray-200 rounded-xl font-semibold text-gray-800 focus:outline-none focus:ring-2 focus:ring-red-100 focus:border-[#E33E33]"
+                        >
+                            <option value="pending">Pending (Awaiting payment / verification)</option>
+                            <option value="confirmed">Confirmed (Slot reserved & active)</option>
+                            <option value="completed">Completed (Match concluded)</option>
+                            <option value="cancelled">Cancelled (Slot aborted or refunded)</option>
+                        </select>
+                    </div>
+
+                    <div className="p-3 bg-gray-50 rounded-xl border border-gray-100 text-xs text-gray-500 flex items-center justify-between">
+                        <span>Current Booking Status:</span>
+                        <strong className="text-gray-800 uppercase font-bold">
+                            {bookingToUpdate?.status}
+                        </strong>
+                    </div>
+
+                    <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-gray-100">
+                        <button
+                            type="button"
+                            onClick={() => setBookingToUpdate(null)}
+                            disabled={updatingStatus}
+                            className="px-4 py-2 text-xs font-semibold text-gray-700 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-xl transition-colors"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="button"
+                            onClick={handleConfirmStatusUpdate}
+                            disabled={updatingStatus || selectedNewStatus === bookingToUpdate?.status}
+                            className="px-4 py-2 text-xs font-semibold text-white bg-[#E33E33] hover:bg-[#c9352b] rounded-xl transition-colors flex items-center gap-2 disabled:opacity-50"
+                        >
+                            {updatingStatus && (
+                                <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                            )}
+                            <span>Confirm Status Update</span>
+                        </button>
+                    </div>
+                </div>
+            </AdminModal>
         </div>
     );
 }

@@ -58,6 +58,11 @@ export default function AdminContact() {
     const [replyText, setReplyText] = useState("");
     const [submittingReply, setSubmittingReply] = useState(false);
 
+    // Status Modal
+    const [messageToUpdateStatus, setMessageToUpdateStatus] = useState<ContactMessage | null>(null);
+    const [selectedNewStatus, setSelectedNewStatus] = useState<ContactMessage["status"]>("pending");
+    const [updatingStatus, setUpdatingStatus] = useState(false);
+
     // Delete Modal
     const [messageToDelete, setMessageToDelete] = useState<ContactMessage | null>(null);
     const [deleting, setDeleting] = useState(false);
@@ -114,30 +119,43 @@ export default function AdminContact() {
         setTimeout(() => setFeedback(null), 3500);
     };
 
-    const updateMessageStatus = async (id: string, status: string) => {
+    const handleConfirmStatusUpdate = async () => {
+        if (!messageToUpdateStatus) return;
+        if (messageToUpdateStatus.status === selectedNewStatus) {
+            setMessageToUpdateStatus(null);
+            return;
+        }
         try {
-            const response = await api.put(`/contact/admin/${id}/status`, { status });
+            setUpdatingStatus(true);
+            const response = await api.put(
+                `/contact/admin/${messageToUpdateStatus.id}/status`,
+                { status: selectedNewStatus },
+            );
             if (response.data.success) {
                 setMessages((prev) =>
                     prev.map((m) =>
-                        m.id === id
-                            ? { ...m, status: status as ContactMessage["status"] }
+                        m.id === messageToUpdateStatus.id
+                            ? { ...m, status: selectedNewStatus }
                             : m,
                     ),
                 );
-                if (selectedMessage?.id === id) {
+                if (selectedMessage?.id === messageToUpdateStatus.id) {
                     setSelectedMessage((prev) =>
-                        prev
-                            ? { ...prev, status: status as ContactMessage["status"] }
-                            : null,
+                        prev ? { ...prev, status: selectedNewStatus } : null,
                     );
                 }
                 fetchStats();
-                showFeedback("success", `Inquiry status updated to ${status.replace("_", " ")}.`);
+                showFeedback(
+                    "success",
+                    `Inquiry status updated to ${selectedNewStatus.replace("_", " ")}.`,
+                );
+                setMessageToUpdateStatus(null);
             }
         } catch (error) {
             console.error("Failed to update status:", error);
             showFeedback("error", "Failed to update inquiry status.");
+        } finally {
+            setUpdatingStatus(false);
         }
     };
 
@@ -424,21 +442,17 @@ export default function AdminContact() {
 
                                     {/* Action buttons & Status change */}
                                     <div className="flex items-center gap-2">
-                                        <select
-                                            value={selectedMessage.status}
-                                            onChange={(e) =>
-                                                updateMessageStatus(
-                                                    selectedMessage.id,
-                                                    e.target.value,
-                                                )
-                                            }
-                                            className="text-xs bg-white border border-gray-200 rounded-lg px-2.5 py-1.5 font-semibold text-gray-700 focus:outline-none focus:ring-1 focus:ring-red-200"
+                                        <AdminBadge status={selectedMessage.status} />
+                                        <button
+                                            onClick={() => {
+                                                setMessageToUpdateStatus(selectedMessage);
+                                                setSelectedNewStatus(selectedMessage.status);
+                                            }}
+                                            className="px-2.5 py-1.5 text-xs font-semibold text-gray-700 hover:text-gray-900 bg-white hover:bg-gray-50 border border-gray-200 rounded-lg transition-colors shadow-xs"
+                                            title="Update inquiry status"
                                         >
-                                            <option value="pending">Pending</option>
-                                            <option value="in_progress">In Progress</option>
-                                            <option value="resolved">Resolved</option>
-                                            <option value="closed">Closed</option>
-                                        </select>
+                                            Update Status
+                                        </button>
 
                                         <button
                                             onClick={() => setShowReplyModal(true)}
@@ -562,6 +576,68 @@ export default function AdminContact() {
                                 <Send className="w-3.5 h-3.5" />
                             )}
                             <span>Send Official Reply</span>
+                        </button>
+                    </div>
+                </div>
+            </AdminModal>
+
+            {/* Status Update Modal */}
+            <AdminModal
+                isOpen={Boolean(messageToUpdateStatus)}
+                onClose={() => setMessageToUpdateStatus(null)}
+                title="Update Inquiry Status"
+                description={
+                    messageToUpdateStatus
+                        ? `Inquiry from ${messageToUpdateStatus.name}: "${messageToUpdateStatus.subject}"`
+                        : undefined
+                }
+                maxWidth="md"
+            >
+                <div className="space-y-4">
+                    <div>
+                        <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">
+                            Select New Status
+                        </label>
+                        <select
+                            value={selectedNewStatus}
+                            onChange={(e) =>
+                                setSelectedNewStatus(e.target.value as ContactMessage["status"])
+                            }
+                            className="w-full p-2.5 text-xs sm:text-sm bg-gray-50 border border-gray-200 rounded-xl font-semibold text-gray-800 focus:outline-none focus:ring-2 focus:ring-red-100 focus:border-[#E33E33]"
+                        >
+                            <option value="pending">Pending (Awaiting initial review / reply)</option>
+                            <option value="in_progress">In Progress (Under active investigation)</option>
+                            <option value="resolved">Resolved (Issue addressed & answered)</option>
+                            <option value="closed">Closed (Inquiry archived)</option>
+                        </select>
+                    </div>
+
+                    <div className="p-3 bg-gray-50 rounded-xl border border-gray-100 text-xs text-gray-500 flex items-center justify-between">
+                        <span>Current Status:</span>
+                        <strong className="text-gray-800 uppercase font-bold">
+                            {messageToUpdateStatus?.status.replace("_", " ")}
+                        </strong>
+                    </div>
+
+                    <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-gray-100">
+                        <button
+                            type="button"
+                            onClick={() => setMessageToUpdateStatus(null)}
+                            disabled={updatingStatus}
+                            className="px-4 py-2 text-xs font-semibold text-gray-700 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-xl transition-colors"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="button"
+                            onClick={handleConfirmStatusUpdate}
+                            disabled={updatingStatus || selectedNewStatus === messageToUpdateStatus?.status}
+                            className="px-4 py-2 text-xs font-semibold text-white bg-[#E33E33] hover:bg-[#c9352b] rounded-xl transition-colors flex items-center gap-2 disabled:opacity-50"
+                        >
+                            {updatingStatus && (
+                                <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                            )}
+                            <span>Confirm Status Update</span>
                         </button>
                     </div>
                 </div>
